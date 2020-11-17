@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import os
+import argparse
 
 from flask import Flask, request, jsonify, render_template
 from flask_basicauth import BasicAuth
@@ -98,16 +99,18 @@ def get_temporal_overlap(u1, u2, k):
         raise Exception("Do not recognize temporal overlap key -- must be 'd' for daily or 'h' for hourly.")
     # map cosine similarity values to qualitative labels
     # thresholds based on examining some examples and making judgments on how similar they seemed to be
+    result = {'cos-sim':cs, 'level':'No overlap'}
+
     if cs == 1:
-        return {'cos-sim':cs, 'level':'Same'}
+        result = {'cos-sim':cs, 'level':'Same'}
     elif cs > 0.8:
-        return {'cos-sim':cs, 'level':'High'}
+        result = {'cos-sim':cs, 'level':'High'}
     elif cs > 0.5:
-        return {'cos-sim':cs, 'level':'Medium'}
+        result = {'cos-sim':cs, 'level':'Medium'}
     elif cs > 0:
-        return {'cos-sim':cs, 'level':'Low'}
-    else:
-        return {'cos-sim':cs, 'level':'No overlap'}
+        result = {'cos-sim':cs, 'level':'Low'}
+
+    return result
 
 def get_additional_edits(user_text, last_edit_timestamp=None, lang='en', limit=1000, session=None):
     """Gather edits made by a user since last data dumps -- e.g., October edits if dumps end of September dumps used."""
@@ -155,8 +158,8 @@ def get_additional_edits(user_text, last_edit_timestamp=None, lang='en', limit=1
                         min_timestamp = ts
                         max_timestamp = ts
                     else:
-                       max_timestamp = max(max_timestamp, ts)
-                       min_timestamp = min(min_timestamp, ts)
+                        max_timestamp = max(max_timestamp, ts)
+                        min_timestamp = min(min_timestamp, ts)
             if len(pageids) > limit:
                 break
         # Update USER_METADATA so future calls don't need to repeat this process
@@ -256,42 +259,56 @@ def check_user_text(user_text):
     # already in dataset -- meets valid user criteria
     if user_text in USER_METADATA:
         return None
+
     # wasn't in dataset
     # this could be because they have only contributed since the date of the dumps
     # but have to be careful to filter out bots still
     # unfortunately no one API call can give: is user/anon but not bot
-    else:
-        session = mwapi.Session('https://en.wikipedia.org', user_agent=app.config['CUSTOM_UA'])
-        # check if user has made contributions in 2020
+    session = mwapi.Session('https://en.wikipedia.org', user_agent=app.config['CUSTOM_UA'])
+    # check if user has made contributions in 2020
+    result = session.get(
+        action="query",
+        list="usercontribs",
+        ucuser=user_text,
+        ucprop='timestamp',
+        ucnamespace="|".join([str(ns) for ns in app.config['NAMESPACES']]),
+        ucstart=app.config['EARLIEST_TS'],
+        ucdir='newer',
+        uclimit=1,
+        format='json',
+        formatversion=2
+    )
+
+    if result['query']['usercontribs']:
+        # check if bot
         result = session.get(
             action="query",
-            list="usercontribs",
-            ucuser=user_text,
-            ucprop='timestamp',
-            ucnamespace="|".join([str(ns) for ns in app.config['NAMESPACES']]),
-            ucstart=app.config['EARLIEST_TS'],
-            ucdir='newer',
-            uclimit=1,
+            list="users",
+            ususers=user_text,
+            usprop='groups',
             format='json',
             formatversion=2
         )
-
-        if result['query']['usercontribs']:
-            # check if bot
-            result = session.get(
-                action="query",
-                list="users",
-                ususers=user_text,
-                usprop='groups',
-                format='json',
-                formatversion=2
-            )
-            # this condition should never be met -- valid username w/ contributions but no account info
-            if 'missing' in result['query']['users'][0]:
-                return "User `{0}` does not appear to have an account in English Wikipedia.".format(user_text)
-            # anon (has contribs but not a valid account name)
-            elif 'invalid' in result['query']['users'][0]:
-                USER_METADATA[user_text] = {'is_anon':True,
+        # this condition should never be met -- valid username w/ contributions but no account info
+        if 'missing' in result['query']['users'][0]:
+            return "User `{0}` does not appear to have an account in English Wikipedia.".format(user_text)
+        # anon (has contribs but not a valid account name)
+        elif 'invalid' in result['query']['users'][0]:
+            USER_METADATA[user_text] = {'is_anon':True,
+                                        'num_edits':0,
+                                        'num_pages':0,
+                                        'most_recent_edit':None,
+                                        'oldest_edit':None}
+            TEMPORAL_DATA[user_text] = {'d': [0] * 7, 'h': [0] * 24}
+            COEDIT_DATA[user_text] = []
+            return None
+        elif 'groups' in result['query']['users'][0]:
+            # bot
+            if 'bot' in result['query']['users'][0]['groups']:
+                return "User `{0}` is a bot and therefore out of scope.".format(user_text)
+            # exists and is user but wasn't in original dataset
+            else:
+                USER_METADATA[user_text] = {'is_anon':False,
                                             'num_edits':0,
                                             'num_pages':0,
                                             'most_recent_edit':None,
@@ -299,23 +316,9 @@ def check_user_text(user_text):
                 TEMPORAL_DATA[user_text] = {'d': [0] * 7, 'h': [0] * 24}
                 COEDIT_DATA[user_text] = []
                 return None
-            elif 'groups' in result['query']['users'][0]:
-                # bot
-                if 'bot' in result['query']['users'][0]['groups']:
-                    return "User `{0}` is a bot and therefore out of scope.".format(user_text)
-                # exists and is user but wasn't in original dataset
-                else:
-                    USER_METADATA[user_text] = {'is_anon':False,
-                                                'num_edits':0,
-                                                'num_pages':0,
-                                                'most_recent_edit':None,
-                                                'oldest_edit':None}
-                    TEMPORAL_DATA[user_text] = {'d': [0] * 7, 'h': [0] * 24}
-                    COEDIT_DATA[user_text] = []
-                    return None
-        # account has no contributions in enwiki in namespaces
-        else:
-            return "User `{0}` does not appear to have an account (or edits in scope) in English Wikipedia.".format(user_text)
+
+    # account has no contributions in enwiki in namespaces
+    return "User `{0}` does not appear to have an account (or edits in scope) in English Wikipedia.".format(user_text)
 
 def validate_api_args():
     """Validate API arguments for model. Return error if missing or user-text does not exist or not relevant."""
