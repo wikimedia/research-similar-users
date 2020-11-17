@@ -1,0 +1,30 @@
+version: v4
+base: docker-registry.wikimedia.org/python3
+lives:
+  in: /srv/service
+runs:
+  environment: { APP_BASE_PATH: /srv/service }
+python:
+  version: python3
+
+variants:
+  build:
+    apt: { packages: [build-essential] }
+    base: docker-registry.wikimedia.org/python3-build-buster
+    copies: [local]
+    python:
+      requirements: [requirements.txt]
+    entrypoint: [python3, model/wsgi.py]
+    runs: { insecurely: true }
+  development:
+    includes: [build]
+    entrypoint: [python3, wsgi.py]
+  test:
+    includes: [build]
+    entrypoint: [python3, wsgi.py]
+  prep:
+    includes: [build]
+    node: { env: production }
+  production:
+    copies: [prep]
+    node: { env: production }
