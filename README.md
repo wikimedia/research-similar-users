@@ -1,10 +1,10 @@
-# similar-users
+# research-similar-users
 Find the most similar users to a given user on Wikipedia based on edit history.
 
 This repository has two primary components: the API endpoint (on Cloud VPS) and interface (also running on Cloud VPS but could be separated out)
 
 ## API
-See [the API template](https://github.com/wikimedia/research-api-endpoint-template) for more details on how to start and update the instance, though the private nature of this repository means that updates are much more manual than desirable at the moment. The instance has a nginx web server that sends requests via uWSGI to a Flask app.
+See [the API template](https://github.com/wikimedia/research-api-endpoint-template) for more details on how to start and update the instance, though updates for this repository are much more manual than desirable at the moment until the config is updated. The instance has a nginx web server that sends requests via uWSGI to a Flask app.
 
 ### Privacy / Access
 The default logging by nginx builds an access log located at `/var/log/nginx/access.log` that logs IP, timestamp, referer, request, and user_agent information.
