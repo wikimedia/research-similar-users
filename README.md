@@ -11,9 +11,7 @@ The default logging by nginx builds an access log located at `/var/log/nginx/acc
 I have overridden that in this repository (`model.nginx`) to remove IP and user-agent so as not to retain private data unnecessariliy.
 This can be [updated easily](https://docs.nginx.com/nginx/admin-guide/monitoring/logging/#setting-up-the-access-log).
 
-While this API is in the experimental stage, there are no access restrictions on the API but the 
-code is private to reduce the likelihood that someone discovers it and identifies the appropriate URL parameters.
-The user-interface is additionally protected behind a simple username and password to reduce the chance
+The user-interface is protected behind a simple username and password (not included here) to reduce the chance
 of someone accessing the API through that mechanism.
 
 ### Relevant Data
