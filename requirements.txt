@@ -1,0 +1,7 @@
+Flask
+Flask-Cors
+mwapi
+PyYAML
+uWSGI
+sklearn
+Flask-BasicAuth

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<title>Sockpuppet Detection</title>
+	<link rel="shortcut icon" href="./static/favicon.ico">
+	<meta name="viewport" content="width = device-width, initial-scale=1, user-scalable = no" />
+	<link href="https://tools-static.wmflabs.org/fontcdn/css?family=Merriweather:400,400italic,700,700italic&subset=latin" rel="stylesheet" type="text/css">
+	<link href='https://tools-static.wmflabs.org/fontcdn/css?family=Lato:400,400italic,700,700italic&subset=latin' rel='stylesheet' type='text/css'>
+	<link href="https://tools-static.wmflabs.org/cdnjs/ajax/libs/datatables/1.10.21/css/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
+	<link rel="stylesheet" href="../static/style.css" />
+</head>
+
+<body>
+	<script type="text/javascript">
+		var body = document.body;
+		body.classList.add('js');
+	</script>
+
+	<div id="origin_bar">
+		<div class="boxwidth--1-1 padded--left padded--right">
+			<a href="https://research.wikimedia.org/" class="origin_title"><img src="./static/Wikimedia-Foundation-logo.svg" alt="Wikimedia Foundation logo" />Wikimedia Research</a>
+		</div>
+	</div>
+
+	<article id="tool_holder">
+		<!-- Header / Start -->
+		<div id="tool_header--holder" class="boxwidth--1-1 padded--left padded--right">
+			<header id="tool_header">
+				<!-- Tool name -->
+				<h1>Sockpuppet Detection</h1>
+				<div class="meta">
+					<div class="disclaimer note">
+						<p>No guarantees are made that this tool will be maintained.</p>
+						<p>This is an experimental tool hosted on <a href="https://wikitech.wikimedia.org/wiki/Portal:Cloud_VPS">Cloud VPS</a>. No additional personal data is collected by this tool per the Cloud Services
+							<a href="https://wikitech.wikimedia.org/wiki/Wikitech:Cloud_Services_Terms_of_use" target="_blank" rel="noopener">Terms of Use</a>.</p>
+					</div>
+					<div class="description padded--right">
+						<p>This tool allows for testing sockpuppet detection models that identify the most similar users for a given user based on edit overlap.</p>
+					</div>
+				</div>
+			</header>
+		</div>
+
+		<div class="separator"></div>
+
+		<main id="tool_main">
+			<section id="similarusers" class="boxwidth--1-1 padded--left padded--right">
+				<h2>Finding Similar Users</h2>
+				<section class="text">
+					<p>This API lists the 50 most-similar users to a given user (anons or logged-in; bots excluded).</p>
+					<p>The data the model uses is based on English Wikipedia edits from 2020 to namespaces 0, 1, and 118.</p>
+					<p>You can test out the API below -- for example, with <a href="https://spd-test.wmcloud.org/similarusers?usertext=Bttowadch&k=50">User:Bttowadch</a></p>
+				</section>
+				<section class="form">
+					<form action="#similarusers">
+						<div class="cols cols4">
+							<div class="col col2">
+								<label class="placeholder"><span class="field_name">Username or IP -- e.g., Bttowadch</span>
+									<input type="text" value="" placeholder="Placeholder text" id="usertext"/>
+								</label>
+							</div>
+							<div class="col col1">
+								<label class="placeholder"><span class="field_name">Max # of results -- e.g., 50</span>
+									<input type="text" value="" placeholder="Placeholder text" id="k"/>
+								</label>
+							</div>
+							<div class="col col1">
+								<span class="field_name"></span>
+								<input type="submit" value="Submit" id="btnSubmit" />
+							</div>
+						</div>
+					</form>
+				</section>
+
+				<!-- Empty section to hold results -->
+				<section class="text" id="spd-results">
+				</section>
+			</section>
+		</main>
+	</article>
+
+	<footer id="tool_footer">
+		<div id="tool_footer-in" class="boxwidth--1-1 padded--left padded--right">
+			<p>Experimental tool developed by <span class="tool-author"><a href="https://meta.wikipedia.org/wiki/User:Isaac_(WMF)">Isaac (WMF)</a> as part of <a href="https://research.wikimedia.org/">Wikimedia Research</a></span>.</p>
+			<ul>
+				<li><a href="#">Code is currently private</a></li>
+				<li><a href="https://meta.wikimedia.org/wiki/Research:Sockpuppet_detection_in_Wikimedia_projects">Meta</a></li>
+				<li><a href="https://github.com/wikimedia/research-api-interface-template/blob/master/LICENSE">License</a></li>
+			</ul>
+		</div>
+	</footer>
+	<script type="text/javascript" src="https://tools-static.wmflabs.org/cdnjs/ajax/libs/jquery/3.5.0/jquery.min.js"></script>
+	<script type="text/javascript" src="https://tools-static.wmflabs.org/cdnjs/ajax/libs/datatables/1.10.21/js/jquery.dataTables.min.js"></script>
+	<script type="text/javascript">
+		$(document).ready(function() {
+			$('form label.placeholder').each(function() {
+				$(this).addClass('off');
+				$(this).on('focusin', function() {
+					$(this).removeClass('off');
+				});
+				$(this).on('focusout', function() {
+					if (!$('input, textarea, select', this).val()) {
+						$(this).addClass('off');
+					}
+				});
+				$('*[placeholder]', this).attr('placeholder', '');
+			});
+		});
+
+	</script>
+
+	<script type="text/javascript">
+		$('#btnSubmit').click(function (e) {
+		   e.preventDefault(); querySPDApi();
+		});
+
+		function queryUser(usertext) {
+			document.getElementById('usertext').value = usertext;
+			document.getElementById('usertext').parentNode.className = 'placeholder';
+			querySPDApi();
+		}
+
+	    var render_results = function(data) {
+			$("#spd-results").empty();
+			if ("Error" in data) {
+				$("#spd-results").append("<br><p>Error: " + data["Error"] + "</p>");
+			}
+			else {
+				$("#spd-results").append('<br><h3><a href="https://en.wikipedia.org/wiki/User:' + data["user_text"] + '">User:' + data["user_text"] + '</a></h3>');
+				$("#spd-results").append('<p>Results based on <a href="https://en.wikipedia.org/wiki/Special:Contributions/' + data["user_text"] + '">' + data["num_edits_in_data"] + ' edits</a> from ' + data["first_edit_in_data"] + " to " + data["last_edit_in_data"] + '. See <a href="https://xtools.wmflabs.org/ec-timecard/en.wikipedia.org/' + data["user_text"] + '">Timecard</a>.</p>');
+			  	if (data["results"].length > 0) {
+					var table_data = [];
+					var table_html = '<table id="spd-results-table">';
+					table_html += '<thead><tr><th>User</th><th>Edit Overlap</th><th>Inverse Edit Overlap</th><th>Day Overlap</th><th>Hour Overlap</th><th>Edits in Data</th></tr></thead>';
+					table_html += '</table>';
+					$("#spd-results").append(table_html);
+					for (var u_idx in data["results"]) {
+						var row = {};
+						row['User'] = '<a href="https://en.wikipedia.org/wiki/User:' + data["results"][u_idx]["user_text"] + '">' + data["results"][u_idx]["user_text"] + "</a>";
+						row['Edit Overlap'] = '<a href="https://interaction-timeline.toolforge.org/?wiki=enwiki&user=' + data["user_text"] + '&user=' + data["results"][u_idx]["user_text"] + '">' + Math.round(data["results"][u_idx]["edit-overlap"]*100) + "%</a>";
+						row['Inverse Edit Overlap'] = '<a href="https://interaction-timeline.toolforge.org/?wiki=enwiki&user=' + data["results"][u_idx]["user_text"] + '&user=' + data["user_text"] + '">' + Math.round(data["results"][u_idx]["edit-overlap-inv"]*100) + "%</a>";
+						row['Day Overlap'] = {"display": '<a href="https://xtools.wmflabs.org/ec-timecard/en.wikipedia.org/' + data["results"][u_idx]["user_text"] + '">' + data["results"][u_idx]["day-overlap"]["level"] + '</a>', "sort": data["results"][u_idx]["day-overlap"]["cos-sim"]};
+						row['Hour Overlap'] = {"display": '<a href="https://xtools.wmflabs.org/ec-timecard/en.wikipedia.org/' + data["results"][u_idx]["user_text"] + '">' + data["results"][u_idx]["hour-overlap"]["level"] + '</a>', "sort": data["results"][u_idx]["hour-overlap"]["cos-sim"]};
+						row['Edits in Data'] = '<a href="https://en.wikipedia.org/wiki/Special:Contributions/' + data["results"][u_idx]["user_text"] + '">' + data["results"][u_idx]["num_edits_in_data"] + "</a>";
+						table_data.push(row);
+					}
+					console.log(table_data);
+					$('#spd-results-table').DataTable( {
+						"data": table_data,
+						"columns": [{'data': "User"},
+									{'data': "Edit Overlap"},
+									{'data': "Inverse Edit Overlap"},
+									{'data': "Day Overlap", "render": {
+									  "sort": "sort",
+									  "display": "display"
+										}
+									},
+									{'data': "Hour Overlap", "render": {
+									  "sort": "sort",
+									  "display": "display"
+										}
+									},
+									{'data': "Edits in Data"},],
+						"searching": false,
+						"scrollY": "600px",
+						"paging": false,
+						"order": [1, 'desc']
+					} );
+
+			  	}
+			  	else {
+					$("#spd-results").append("<li><No similar users found.</li>");
+			  	}
+			}
+		}
+
+	  	function querySPDApi() {
+			var queryUrl = "https://spd-test.wmcloud.org/similarusers?usertext=" + document.getElementById('usertext').value + '&k=' + document.getElementById('k').value;
+			// var queryUrl = "http://127.0.0.1:5000/similarusers?k=50&usertext=" + document.getElementById('usertext').value;
+			$.ajax(queryUrl, {success: render_results.bind(this),
+							  error: function(jqxmlhr, status, error){console.log(status + ": " + error)}
+							  }
+				  );
+	  	}
+	</script>
+
+</body>
+
+</html>
