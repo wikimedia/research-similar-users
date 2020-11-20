@@ -1,20 +1,19 @@
-from datetime import datetime, timedelta
-import os
-import argparse
+#!/usr/bin/env python3
 
-from flask import Flask, request, jsonify, render_template
+from datetime import datetime, timedelta
+import argparse
+import logging
+import os
+import pathlib
+
+import mwapi
+import yaml
+from flask import Flask, request, jsonify, render_template, abort
 from flask_basicauth import BasicAuth
 from flask_cors import CORS
-import mwapi
 from sklearn.metrics.pairwise import cosine_similarity
-import yaml
 
 app = Flask(__name__)
-
-__dir__ = os.path.dirname(__file__)
-
-# load in app user-agent or any other app config
-app.config.update(yaml.safe_load(open(os.path.join(__dir__, "flask_config.yaml"))))
 
 basic_auth = BasicAuth(app)
 
@@ -31,6 +30,7 @@ USER_METADATA = {}  # is_anon; num_edits; num_pages; most_recent_edit; oldest_ed
 COEDIT_DATA = {}
 TEMPORAL_DATA = {}
 
+# TODO: Make all of these configuration options
 DEFAULT_K = 50
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 READABLE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S UTC"
@@ -40,12 +40,14 @@ INTERACTIONTIMELINE_URL = (
     "https://interaction-timeline.toolforge.org/?wiki=enwiki&user={0}&user={1}"
 )
 
-
 @app.route("/")
 @basic_auth.required
 def index():
     """Simple UI for querying API. Password-protected to reduce chance of accidental discovery / abuse."""
-    return render_template("index.html")
+    if app.config.get("ENABLE_UI", False):
+        return render_template("index.html")
+    else:
+        return abort(403, description="UI disabled")
 
 
 @app.route("/similarusers", methods=["GET"])
@@ -59,29 +61,30 @@ def get_similar_users():
     """
     user_text, num_similar, followup, error = validate_api_args()
     if error is not None:
+        logging.error("Got error when trying to validate API arguments: %s", error)
         return jsonify({"Error": error})
-    else:
-        edits = get_additional_edits(
-            user_text, last_edit_timestamp=USER_METADATA[user_text]["most_recent_edit"]
-        )
-        if edits is not None:
-            update_coedit_data(user_text, edits, app.config["EDIT_WINDOW"])
-        overlapping_users = COEDIT_DATA.get(user_text, [])[:num_similar]
-        result = {
-            "user_text": user_text,
-            "num_edits_in_data": USER_METADATA[user_text]["num_edits"],
-            "first_edit_in_data": datetime.strptime(
-                USER_METADATA[user_text]["oldest_edit"], TIME_FORMAT
-            ).strftime(READABLE_TIME_FORMAT),
-            "last_edit_in_data": datetime.strptime(
-                USER_METADATA[user_text]["most_recent_edit"], TIME_FORMAT
-            ).strftime(READABLE_TIME_FORMAT),
-            "results": [
-                build_result(user_text, u[0], u[1], num_similar, followup)
-                for u in overlapping_users
-            ],
-        }
-        return jsonify(result)
+
+    edits = get_additional_edits(
+        user_text, last_edit_timestamp=USER_METADATA[user_text]["most_recent_edit"]
+    )
+    if edits is not None:
+        update_coedit_data(user_text, edits, app.config["EDIT_WINDOW"])
+    overlapping_users = COEDIT_DATA.get(user_text, [])[:num_similar]
+    result = {
+        "user_text": user_text,
+        "num_edits_in_data": USER_METADATA[user_text]["num_edits"],
+        "first_edit_in_data": datetime.strptime(
+            USER_METADATA[user_text]["oldest_edit"], TIME_FORMAT
+        ).strftime(READABLE_TIME_FORMAT),
+        "last_edit_in_data": datetime.strptime(
+            USER_METADATA[user_text]["most_recent_edit"], TIME_FORMAT
+        ).strftime(READABLE_TIME_FORMAT),
+        "results": [
+            build_result(user_text, u[0], u[1], num_similar, followup)
+            for u in overlapping_users
+        ],
+    }
+    return jsonify(result)
 
 
 def build_result(user_text, neighbor, num_pages_overlapped, num_similar, followup):
@@ -125,6 +128,7 @@ def get_temporal_overlap(u1, u2, k):
             [TEMPORAL_DATA.get(u2, {}).get("h", [0] * 24)],
         )[0][0]
     else:
+        logging.error("Unrecognised temporal overlap key - expected 'd' or 'h' but got %s", k)
         raise Exception(
             "Do not recognize temporal overlap key -- must be 'd' for daily or 'h' for hourly."
         )
@@ -207,7 +211,12 @@ def get_additional_edits(
         USER_METADATA[user_text]["most_recent_edit"] = max_timestamp
         USER_METADATA[user_text]["oldest_edit"] = min_timestamp
         return pageids
-    except Exception:
+    except Exception as exc:
+        logging.error("Failed to get additional edits for {user_text}, lang {lang}. {last_edit}. Exception: {exc}".format(
+            user_text=user_text,
+            lang=lang,
+            last_edit="Last edit timestamp %s" % last_edit_timestamp if last_edit_timestamp else "",
+            exc=str(exc)))
         return None
 
 
@@ -387,10 +396,8 @@ def validate_api_args():
     """Validate API arguments for model. Return error if missing or user-text does not exist or not relevant."""
     user_text = request.args.get("usertext")
     num_similar = request.args.get("k", DEFAULT_K)  # must be between 1 and 250
-    if "followup" in request.args:
-        followup = True
-    else:
-        followup = False
+    followup = "followup" in request.args
+
     error = None
     try:
         num_similar = max(1, int(num_similar))
@@ -409,18 +416,11 @@ def validate_api_args():
     return user_text, num_similar, followup, error
 
 
-def load_data():
-    """Load in necessary data for tool."""
-    load_coedit_data()
-    load_temporal_data()
-    load_metadata()
-
-
-def load_coedit_data():
+def load_coedit_data(resource_dir):
     """Load preprocessed data about edit overlap between users."""
     print("Loading co-edit data")
     expected_header = ["user_text", "user_neighbor", "num_pages_overlapped"]
-    with open(os.path.join(__dir__, "resources/coedit_counts.tsv"), "r") as fin:
+    with open(os.path.join(resource_dir, "coedit_counts.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
         for line_str in fin:
             line = line_str.strip().split("\t")
@@ -433,11 +433,11 @@ def load_coedit_data():
     return COEDIT_DATA
 
 
-def load_temporal_data():
+def load_temporal_data(resource_dir):
     """Load preprocessed temporal information about when an account has edited."""
     print("Loading temporal data")
     expected_header = ["user_text", "day_of_week", "hour_of_day", "num_edits"]
-    with open(os.path.join(__dir__, "resources/temporal.tsv"), "r") as fin:
+    with open(os.path.join(resource_dir, "temporal.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
         for line_str in fin:
             line = line_str.strip().split("\t")
@@ -463,7 +463,7 @@ def update_temporal_data(user_text, day, hour, num_edits):
         TEMPORAL_DATA[user_text]["h"][h] += num_edits
 
 
-def load_metadata():
+def load_metadata(resource_dir):
     """Load some basic statistics about coverage of each account in the data."""
     print("Loading metadata")
     expected_header = [
@@ -474,13 +474,14 @@ def load_metadata():
         "most_recent_edit",
         "oldest_edit",
     ]
-    with open(os.path.join(__dir__, "resources/metadata.tsv"), "r") as fin:
+    with open(os.path.join(resource_dir, "metadata.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
         for line_str in fin:
+            #TODO use csv library here?
             line = line_str.strip().split("\t")
             user = line[0]
             USER_METADATA[user] = {
-                "is_anon": eval(line[1]),
+                "is_anon": bool(line[1]),
                 "num_edits": int(line[2]),
                 "num_pages": int(line[3]),
                 "most_recent_edit": line[4],
@@ -488,8 +489,44 @@ def load_metadata():
             }
 
 
-application = app
-load_data()
+def load_data(resource_dir):
+    """Load in necessary data for tool."""
+    load_coedit_data(resource_dir)
+    load_temporal_data(resource_dir)
+    load_metadata(resource_dir)
+
+
+def parse_args():
+    """Parse command line arguments."""
+
+    parser = argparse.ArgumentParser(
+        description='A webservice to determine the degree of similarity between users')
+    parser.add_argument("--config", "-c", action="store",
+                        help="Path to the service configuration file.",
+                        type=pathlib.Path, default=open(
+                            os.path.join(os.path.dirname(__file__),
+                                         "flask_config.yaml")))
+    parser.add_argument("--resourcedir", "-r", action="store",
+                        help="Path to the service configuration file.",
+                        type=pathlib.Path, default=open(
+                            os.path.join(os.path.dirname(__file__),
+                                         "resources")))
+    parser.add_argument("--verbose", "-v", dest="verbose", action="store_true",
+                        help="Verbose output.",
+                        default=False)
+    return parser.parse_args()
+
+
+def main():
+
+    args = parse_args()
+    # TODO move app creation to its own function rather than using it as a
+    # global
+    app.config.update(yaml.safe_load(args.config))
+
+    load_data(args.resourcedir)
+    app.run()
+
 
 if __name__ == "__main__":
-    application.run()
+    main()

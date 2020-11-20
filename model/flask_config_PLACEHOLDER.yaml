@@ -3,6 +3,8 @@ CUSTOM_UA: "spd (cloud-vps) -- isaac@wikimedia.org"
 
 DEBUG: False
 
+ENABLE_UI: False
+
 EARLIEST_TS: 'YYYY-MM-DDTHH:MM:SSZ'
 MOST_RECENT_REV_TS: 'YYYY-MM-DDTHH:MM:SSZ'
 JSON_SORT_KEYS: False
