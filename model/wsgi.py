@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from datetime import datetime, timedelta
+from ast import literal_eval as make_tuple
 import argparse
 import logging
 import os
@@ -418,7 +419,7 @@ def validate_api_args():
 
 def load_coedit_data(resource_dir):
     """Load preprocessed data about edit overlap between users."""
-    print("Loading co-edit data")
+    logging.info("Loading co-edit data")
     expected_header = ["user_text", "user_neighbor", "num_pages_overlapped"]
     with open(os.path.join(resource_dir, "coedit_counts.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
@@ -435,7 +436,7 @@ def load_coedit_data(resource_dir):
 
 def load_temporal_data(resource_dir):
     """Load preprocessed temporal information about when an account has edited."""
-    print("Loading temporal data")
+    logging.info("Loading temporal data")
     expected_header = ["user_text", "day_of_week", "hour_of_day", "num_edits"]
     with open(os.path.join(resource_dir, "temporal.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
@@ -455,7 +456,8 @@ def update_temporal_data(user_text, day, hour, num_edits):
     if user_text not in TEMPORAL_DATA:
         TEMPORAL_DATA[user_text] = {"d": [0] * 7, "h": [0] * 24}
     # potentially smear data so edits in nearby hours also overlap (not just direct matches)
-    for offset in app.config["TEMPORAL_OFFSET"]:
+    offset_tup = make_tuple(app.config["TEMPORAL_OFFSET"])
+    for offset in offset_tup:
         h = hour + offset  # -1 to 24
         d = (day + (h // 24)) % 7
         h = h % 24
@@ -465,7 +467,7 @@ def update_temporal_data(user_text, day, hour, num_edits):
 
 def load_metadata(resource_dir):
     """Load some basic statistics about coverage of each account in the data."""
-    print("Loading metadata")
+    logging.info("Loading metadata")
     expected_header = [
         "user_text",
         "is_anon",
@@ -503,14 +505,14 @@ def parse_args():
         description='A webservice to determine the degree of similarity between users')
     parser.add_argument("--config", "-c", action="store",
                         help="Path to the service configuration file.",
-                        type=pathlib.Path, default=open(
-                            os.path.join(os.path.dirname(__file__),
-                                         "flask_config.yaml")))
+                        type=pathlib.Path,
+                        default=os.path.join(os.path.dirname(__file__),
+                                            "flask_config.yaml"))
     parser.add_argument("--resourcedir", "-r", action="store",
                         help="Path to the service configuration file.",
-                        type=pathlib.Path, default=open(
-                            os.path.join(os.path.dirname(__file__),
-                                         "resources")))
+                        type=pathlib.Path,
+                        default=os.path.join(os.path.dirname(__file__),
+                                            "resources"))
     parser.add_argument("--verbose", "-v", dest="verbose", action="store_true",
                         help="Verbose output.",
                         default=False)
@@ -522,7 +524,7 @@ def main():
     args = parse_args()
     # TODO move app creation to its own function rather than using it as a
     # global
-    app.config.update(yaml.safe_load(args.config))
+    app.config.update(yaml.safe_load(open(args.config)))
 
     load_data(args.resourcedir)
     app.run()
