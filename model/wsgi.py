@@ -52,6 +52,7 @@ def index():
 
 
 @app.route("/similarusers", methods=["GET"])
+@basic_auth.required
 def get_similar_users():
     """For a given user, find the k-most-similar users based on edit overlap.
 
@@ -353,6 +354,7 @@ def check_user_text(user_text):
         )
         # this condition should never be met -- valid username w/ contributions but no account info
         if "missing" in result["query"]["users"][0]:
+            logging.error("Received request for user %s when they don't appear to have an enwiki account", user_text)
             return "User `{0}` does not appear to have an account in English Wikipedia.".format(
                 user_text
             )
@@ -371,6 +373,7 @@ def check_user_text(user_text):
         elif "groups" in result["query"]["users"][0]:
             # bot
             if "bot" in result["query"]["users"][0]["groups"]:
+                logging.warn("Received request for user %s which is a bot account - out of scope", user_text)
                 return "User `{0}` is a bot and therefore out of scope.".format(
                     user_text
                 )
@@ -385,9 +388,12 @@ def check_user_text(user_text):
                 }
                 TEMPORAL_DATA[user_text] = {"d": [0] * 7, "h": [0] * 24}
                 COEDIT_DATA[user_text] = []
+                logging.debug("Received request for user %s but user is not in dataset", user_text)
                 return None
 
     # account has no contributions in enwiki in namespaces
+    logging.warn("Received request for user %s but user does not have an account or edits in scope on enwiki",
+                 user_text)
     return "User `{0}` does not appear to have an account (or edits in scope) in English Wikipedia.".format(
         user_text
     )
