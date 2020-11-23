@@ -14,14 +14,14 @@ variants:
     copies: [local]
     python:
       requirements: [requirements.txt]
-    entrypoint: [python3, model/wsgi.py]
+    entrypoint: [python3, similar_users/wsgi.py]
     runs: { insecurely: true }
   development:
     includes: [build]
-    entrypoint: [python3, wsgi.py]
+    entrypoint: [python3, similar_users/wsgi.py]
   test:
     includes: [build]
-    entrypoint: [python3, wsgi.py]
+    entrypoint: [python3, similar_users/wsgi.py]
   prep:
     includes: [build]
     node: { env: production }

@@ -41,6 +41,7 @@ INTERACTIONTIMELINE_URL = (
     "https://interaction-timeline.toolforge.org/?wiki=enwiki&user={0}&user={1}"
 )
 
+
 @app.route("/")
 @basic_auth.required
 def index():
@@ -72,15 +73,25 @@ def get_similar_users():
     if edits is not None:
         update_coedit_data(user_text, edits, app.config["EDIT_WINDOW"])
     overlapping_users = COEDIT_DATA.get(user_text, [])[:num_similar]
+
+    oldest_edit = None
+    last_edit = None
+    logging.info(str(USER_METADATA[user_text]))
+    if USER_METADATA[user_text]["oldest_edit"]:
+        oldest_edit = datetime.strptime(
+            USER_METADATA[user_text]["oldest_edit"], TIME_FORMAT
+        ).strftime(READABLE_TIME_FORMAT)
+
+    if USER_METADATA[user_text]["most_recent_edit"]:
+        last_edit = datetime.strptime(
+            USER_METADATA[user_text]["most_recent_edit"], TIME_FORMAT
+        ).strftime(READABLE_TIME_FORMAT)
+
     result = {
         "user_text": user_text,
         "num_edits_in_data": USER_METADATA[user_text]["num_edits"],
-        "first_edit_in_data": datetime.strptime(
-            USER_METADATA[user_text]["oldest_edit"], TIME_FORMAT
-        ).strftime(READABLE_TIME_FORMAT),
-        "last_edit_in_data": datetime.strptime(
-            USER_METADATA[user_text]["most_recent_edit"], TIME_FORMAT
-        ).strftime(READABLE_TIME_FORMAT),
+        "first_edit_in_data": oldest_edit,
+        "last_edit_in_data": last_edit,
         "results": [
             build_result(user_text, u[0], u[1], num_similar, followup)
             for u in overlapping_users
@@ -130,7 +141,9 @@ def get_temporal_overlap(u1, u2, k):
             [TEMPORAL_DATA.get(u2, {}).get("h", [0] * 24)],
         )[0][0]
     else:
-        logging.error("Unrecognised temporal overlap key - expected 'd' or 'h' but got %s", k)
+        logging.error(
+            "Unrecognised temporal overlap key - expected 'd' or 'h' but got %s", k
+        )
         raise Exception(
             "Do not recognize temporal overlap key -- must be 'd' for daily or 'h' for hourly."
         )
@@ -214,11 +227,16 @@ def get_additional_edits(
         USER_METADATA[user_text]["oldest_edit"] = min_timestamp
         return pageids
     except Exception as exc:
-        logging.error("Failed to get additional edits for {user_text}, lang {lang}. {last_edit}. Exception: {exc}".format(
-            user_text=user_text,
-            lang=lang,
-            last_edit="Last edit timestamp %s" % last_edit_timestamp if last_edit_timestamp else "",
-            exc=str(exc)))
+        logging.error(
+            "Failed to get additional edits for {user_text}, lang {lang}. {last_edit}. Exception: {exc}".format(
+                user_text=user_text,
+                lang=lang,
+                last_edit="Last edit timestamp %s" % last_edit_timestamp
+                if last_edit_timestamp
+                else "",
+                exc=str(exc),
+            )
+        )
         return None
 
 
@@ -354,7 +372,10 @@ def check_user_text(user_text):
         )
         # this condition should never be met -- valid username w/ contributions but no account info
         if "missing" in result["query"]["users"][0]:
-            logging.error("Received request for user %s when they don't appear to have an enwiki account", user_text)
+            logging.error(
+                "Received request for user %s when they don't appear to have an enwiki account",
+                user_text,
+            )
             return "User `{0}` does not appear to have an account in English Wikipedia.".format(
                 user_text
             )
@@ -373,7 +394,10 @@ def check_user_text(user_text):
         elif "groups" in result["query"]["users"][0]:
             # bot
             if "bot" in result["query"]["users"][0]["groups"]:
-                logging.warn("Received request for user %s which is a bot account - out of scope", user_text)
+                logging.warn(
+                    "Received request for user %s which is a bot account - out of scope",
+                    user_text,
+                )
                 return "User `{0}` is a bot and therefore out of scope.".format(
                     user_text
                 )
@@ -388,12 +412,16 @@ def check_user_text(user_text):
                 }
                 TEMPORAL_DATA[user_text] = {"d": [0] * 7, "h": [0] * 24}
                 COEDIT_DATA[user_text] = []
-                logging.debug("Received request for user %s but user is not in dataset", user_text)
+                logging.debug(
+                    "Received request for user %s but user is not in dataset", user_text
+                )
                 return None
 
     # account has no contributions in enwiki in namespaces
-    logging.warn("Received request for user %s but user does not have an account or edits in scope on enwiki",
-                 user_text)
+    logging.warn(
+        "Received request for user %s but user does not have an account or edits in scope on enwiki",
+        user_text,
+    )
     return "User `{0}` does not appear to have an account (or edits in scope) in English Wikipedia.".format(
         user_text
     )
@@ -404,6 +432,11 @@ def validate_api_args():
     user_text = request.args.get("usertext")
     num_similar = request.args.get("k", DEFAULT_K)  # must be between 1 and 250
     followup = "followup" in request.args
+
+    if not user_text:
+        abort(422, "No usertext provided")
+    if not num_similar:
+        abort(422, "No k specified")
 
     error = None
     try:
@@ -485,7 +518,7 @@ def load_metadata(resource_dir):
     with open(os.path.join(resource_dir, "metadata.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
         for line_str in fin:
-            #TODO use csv library here?
+            # TODO use csv library here?
             line = line_str.strip().split("\t")
             user = line[0]
             USER_METADATA[user] = {
@@ -508,20 +541,32 @@ def parse_args():
     """Parse command line arguments."""
 
     parser = argparse.ArgumentParser(
-        description='A webservice to determine the degree of similarity between users')
-    parser.add_argument("--config", "-c", action="store",
-                        help="Path to the service configuration file.",
-                        type=pathlib.Path,
-                        default=os.path.join(os.path.dirname(__file__),
-                                            "flask_config.yaml"))
-    parser.add_argument("--resourcedir", "-r", action="store",
-                        help="Path to the service configuration file.",
-                        type=pathlib.Path,
-                        default=os.path.join(os.path.dirname(__file__),
-                                            "resources"))
-    parser.add_argument("--verbose", "-v", dest="verbose", action="store_true",
-                        help="Verbose output.",
-                        default=False)
+        description="A webservice to determine the degree of similarity between users"
+    )
+    parser.add_argument(
+        "--config",
+        "-c",
+        action="store",
+        help="Path to the service configuration file.",
+        type=pathlib.Path,
+        default=os.path.join(os.path.dirname(__file__), "flask_config.yaml"),
+    )
+    parser.add_argument(
+        "--resourcedir",
+        "-r",
+        action="store",
+        help="Path to the service configuration file.",
+        type=pathlib.Path,
+        default=os.path.join(os.path.dirname(__file__), "resources"),
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        dest="verbose",
+        action="store_true",
+        help="Verbose output.",
+        default=False,
+    )
     return parser.parse_args()
 
 
@@ -533,7 +578,8 @@ def main():
     app.config.update(yaml.safe_load(open(args.config)))
 
     load_data(args.resourcedir)
-    app.run()
+    # Only use LISTEN_IP to configure docker port exposure - not for serving elsewhere.
+    app.run(app.config["LISTEN_IP"] if "LISTEN_IP" in app.config else "127.0.0.1")
 
 
 if __name__ == "__main__":

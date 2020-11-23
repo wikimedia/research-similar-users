@@ -1,4 +1,4 @@
 *~
 Dockerfile
 *pyc
-model/resources/*tsv
+similar_users/resources/*tsv
