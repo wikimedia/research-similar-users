@@ -1,4 +1,5 @@
 *~
 Dockerfile
 *pyc
-model/resources/*tsv
+similar_users/resources/*tsv
+similar_users/flask_config.yaml
