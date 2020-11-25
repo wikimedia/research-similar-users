@@ -12,10 +12,12 @@ import yaml
 from flask import Flask, request, jsonify, render_template, abort
 from flask_basicauth import BasicAuth
 from flask_cors import CORS
+from prometheus_flask_exporter import PrometheusMetrics
 from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
 
+metrics = PrometheusMetrics(app)
 basic_auth = BasicAuth(app)
 
 # Enable CORS for API endpoints
@@ -54,6 +56,8 @@ def index():
 
 @app.route("/similarusers", methods=["GET"])
 @basic_auth.required
+@metrics.counter('similar_users', 'Number of calls to similarusers',
+                 labels={'similar_count': lambda r: len(r.get_json()["results"])})
 def get_similar_users():
     """For a given user, find the k-most-similar users based on edit overlap.
 
