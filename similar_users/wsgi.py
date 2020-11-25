@@ -149,18 +149,18 @@ def get_temporal_overlap(u1, u2, k):
         )
     # map cosine similarity values to qualitative labels
     # thresholds based on examining some examples and making judgments on how similar they seemed to be
-    result = {"cos-sim": cs, "level": "No overlap"}
+    level = "No overlap"
 
     if cs == 1:
-        result = {"cos-sim": cs, "level": "Same"}
+        level = "Same"
     elif cs > 0.8:
-        result = {"cos-sim": cs, "level": "High"}
+        level = "High"
     elif cs > 0.5:
-        result = {"cos-sim": cs, "level": "Medium"}
+        level = "Medium"
     elif cs > 0:
-        result = {"cos-sim": cs, "level": "Low"}
+        level = "Low"
 
-    return result
+    return {"cos-sim": cs, "level": level}
 
 
 def get_additional_edits(
