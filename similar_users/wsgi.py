@@ -103,6 +103,9 @@ def get_similar_users():
     }
     return jsonify(result)
 
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    return "similarusers is running"
 
 def build_result(user_text, neighbor, num_pages_overlapped, num_similar, followup):
     """Build a single similar-user API response"""
@@ -176,6 +179,8 @@ def get_additional_edits(
             seconds=1
         )
     else:
+        # TODO move this timestamp out of configuration - either automate it
+        # based on current date or query it from a datastore.
         arvstart = app.config["MOST_RECENT_REV_TS"]
     if session is None:
         session = mwapi.Session(
@@ -266,6 +271,8 @@ def update_coedit_data(user_text, new_edits, k, lang="en", session=None, limit=2
             prop="revisions",
             pageids=pid,
             rvprop="ids|timestamp|user",
+            # TODO move this timestamp out of configuration - either automate it
+            # based on current date or query it from a datastore.
             rvstart=app.config["MOST_RECENT_REV_TS"],
             rvdir="newer",
             format="json",
@@ -357,6 +364,8 @@ def check_user_text(user_text):
         ucuser=user_text,
         ucprop="timestamp",
         ucnamespace="|".join([str(ns) for ns in app.config["NAMESPACES"]]),
+        # TODO move this timestamp out of configuration - either automate it
+        # based on current date or query it from a datastore.
         ucstart=app.config["EARLIEST_TS"],
         ucdir="newer",
         uclimit=1,

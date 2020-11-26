@@ -7,7 +7,7 @@ ENABLE_UI: False
 
 EARLIEST_TS: 'YYYY-MM-DDTHH:MM:SSZ'
 MOST_RECENT_REV_TS: 'YYYY-MM-DDTHH:MM:SSZ'
-JSON_SORT_KEYS: False
+
 TEMPORAL_OFFSET: '<tuple of -k through k hour offset -- e.g., (-1, 0, 1)>'
 NAMESPACES: '<list of relevant namespace numbers -- e.g., [0] for just main namespace>'
 EDIT_WINDOW: 'maximum # of edits between two editors to be considered overlap'
