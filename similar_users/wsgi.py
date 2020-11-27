@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from ast import literal_eval as make_tuple
 import argparse
+import distutils.util
 import logging
 import os
 import pathlib
@@ -68,28 +69,33 @@ def get_similar_users():
     """
     user_text, num_similar, followup, error = validate_api_args()
     if error is not None:
-        logging.error("Got error when trying to validate API arguments: %s", error)
+        app.logger.error("Got error when trying to validate API arguments: %s", error)
         return jsonify({"Error": error})
 
     edits = get_additional_edits(
         user_text, last_edit_timestamp=USER_METADATA[user_text]["most_recent_edit"]
     )
+    app.logger.debug("Got %d edits for user %s", len(edits) if edits else 0, user_text)
     if edits is not None:
         update_coedit_data(user_text, edits, app.config["EDIT_WINDOW"])
     overlapping_users = COEDIT_DATA.get(user_text, [])[:num_similar]
 
     oldest_edit = None
     last_edit = None
-    logging.info(str(USER_METADATA[user_text]))
+    app.logger.info(str(USER_METADATA[user_text]))
     if USER_METADATA[user_text]["oldest_edit"]:
         oldest_edit = datetime.strptime(
             USER_METADATA[user_text]["oldest_edit"], TIME_FORMAT
         ).strftime(READABLE_TIME_FORMAT)
+    else:
+        app.logger.debug("Didn't get an oldest_edit for user %s", user_text)
 
     if USER_METADATA[user_text]["most_recent_edit"]:
         last_edit = datetime.strptime(
             USER_METADATA[user_text]["most_recent_edit"], TIME_FORMAT
         ).strftime(READABLE_TIME_FORMAT)
+    else:
+        app.logger.debug("Didn't get an most_recent_edit for user %s", user_text)
 
     result = {
         "user_text": user_text,
@@ -101,6 +107,7 @@ def get_similar_users():
             for u in overlapping_users
         ],
     }
+    logging.debug("Got %d similarity results for user %s", len(result["results"]), user_text)
     return jsonify(result)
 
 @app.route("/healthz", methods=["GET"])
@@ -148,7 +155,7 @@ def get_temporal_overlap(u1, u2, k):
             [TEMPORAL_DATA.get(u2, {}).get("h", [0] * 24)],
         )[0][0]
     else:
-        logging.error(
+        app.logger.error(
             "Unrecognised temporal overlap key - expected 'd' or 'h' but got %s", k
         )
         raise Exception(
@@ -236,7 +243,7 @@ def get_additional_edits(
         USER_METADATA[user_text]["oldest_edit"] = min_timestamp
         return pageids
     except Exception as exc:
-        logging.error(
+        app.logger.error(
             "Failed to get additional edits for {user_text}, lang {lang}. {last_edit}. Exception: {exc}".format(
                 user_text=user_text,
                 lang=lang,
@@ -385,7 +392,7 @@ def check_user_text(user_text):
         )
         # this condition should never be met -- valid username w/ contributions but no account info
         if "missing" in result["query"]["users"][0]:
-            logging.error(
+            app.logger.error(
                 "Received request for user %s when they don't appear to have an enwiki account",
                 user_text,
             )
@@ -407,7 +414,7 @@ def check_user_text(user_text):
         elif "groups" in result["query"]["users"][0]:
             # bot
             if "bot" in result["query"]["users"][0]["groups"]:
-                logging.warning(
+                app.logger.warning(
                     "Received request for user %s which is a bot account - out of scope",
                     user_text,
                 )
@@ -425,13 +432,13 @@ def check_user_text(user_text):
                 }
                 TEMPORAL_DATA[user_text] = {"d": [0] * 7, "h": [0] * 24}
                 COEDIT_DATA[user_text] = []
-                logging.debug(
+                app.logger.debug(
                     "Received request for user %s but user is not in dataset", user_text
                 )
                 return None
 
     # account has no contributions in enwiki in namespaces
-    logging.warning(
+    app.logger.warning(
         "Received request for user %s but user does not have an account or edits in scope on enwiki",
         user_text,
     )
@@ -471,7 +478,7 @@ def validate_api_args():
 
 def load_coedit_data(resource_dir):
     """Load preprocessed data about edit overlap between users."""
-    logging.info("Loading co-edit data")
+    app.logger.info("Loading co-edit data")
     expected_header = ["user_text", "user_neighbor", "num_pages_overlapped"]
     with open(os.path.join(resource_dir, "coedit_counts.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
@@ -488,7 +495,7 @@ def load_coedit_data(resource_dir):
 
 def load_temporal_data(resource_dir):
     """Load preprocessed temporal information about when an account has edited."""
-    logging.info("Loading temporal data")
+    app.logger.info("Loading temporal data")
     expected_header = ["user_text", "day_of_week", "hour_of_day", "num_edits"]
     with open(os.path.join(resource_dir, "temporal.tsv"), "r") as fin:
         assert next(fin).strip().split("\t") == expected_header
@@ -519,7 +526,7 @@ def update_temporal_data(user_text, day, hour, num_edits):
 
 def load_metadata(resource_dir):
     """Load some basic statistics about coverage of each account in the data."""
-    logging.info("Loading metadata")
+    app.logger.info("Loading metadata")
     expected_header = [
         "user_text",
         "is_anon",
@@ -535,7 +542,7 @@ def load_metadata(resource_dir):
             line = line_str.strip().split("\t")
             user = line[0]
             USER_METADATA[user] = {
-                "is_anon": bool(line[1]),
+                "is_anon": bool(distutils.util.strtobool(line[1])),
                 "num_edits": int(line[2]),
                 "num_pages": int(line[3]),
                 "most_recent_edit": line[4],
@@ -588,7 +595,10 @@ def main():
     args = parse_args()
     # TODO move app creation to its own function rather than using it as a
     # global
-    app.config.update(yaml.safe_load(open(args.config)))
+    config_yaml = yaml.safe_load(open(args.config))
+    app.config.update(config_yaml)
+
+    logging.basicConfig(level=logging.getLevelName(config_yaml["LOG_LEVEL"]))
 
     load_data(args.resourcedir)
     # Only use LISTEN_IP to configure docker port exposure - not for serving elsewhere.

@@ -2,6 +2,7 @@
 CUSTOM_UA: "spd (cloud-vps) -- isaac@wikimedia.org"
 
 DEBUG: False
+LOG_LEVEL: WARNING
 
 ENABLE_UI: False
 
