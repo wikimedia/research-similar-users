@@ -5,6 +5,10 @@ DEBUG: False
 
 ENABLE_UI: False
 
+# An RFC1738 uri used to connect to a database.
+# The naming convention is enforced by the Flask-SQLAlchemy module.
+SQLALCHEMY_DATABASE_URI: 'sqlite://'
+
 EARLIEST_TS: 'YYYY-MM-DDTHH:MM:SSZ'
 MOST_RECENT_REV_TS: 'YYYY-MM-DDTHH:MM:SSZ'
 JSON_SORT_KEYS: False
