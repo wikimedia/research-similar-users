@@ -3,3 +3,4 @@ Dockerfile
 *pyc
 similar_users/resources/*tsv
 similar_users/flask_config.yaml
+venv/
