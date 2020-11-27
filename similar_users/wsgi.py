@@ -57,7 +57,7 @@ def index():
 @app.route("/similarusers", methods=["GET"])
 @basic_auth.required
 @metrics.counter('similar_users', 'Number of calls to similarusers',
-                 labels={'similar_count': lambda r: len(r.get_json()["results"])})
+                 labels={'similar_count': lambda r: len(r.get_json()["results"]) if "results" in r.get_json() else 0})
 def get_similar_users():
     """For a given user, find the k-most-similar users based on edit overlap.
 
@@ -407,7 +407,7 @@ def check_user_text(user_text):
         elif "groups" in result["query"]["users"][0]:
             # bot
             if "bot" in result["query"]["users"][0]["groups"]:
-                logging.warn(
+                logging.warning(
                     "Received request for user %s which is a bot account - out of scope",
                     user_text,
                 )
@@ -431,7 +431,7 @@ def check_user_text(user_text):
                 return None
 
     # account has no contributions in enwiki in namespaces
-    logging.warn(
+    logging.warning(
         "Received request for user %s but user does not have an account or edits in scope on enwiki",
         user_text,
     )
