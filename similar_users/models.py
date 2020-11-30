@@ -38,11 +38,12 @@ class Coedit(database.Model):
 
 class Temporal(database.Model):
     """
-    Represents temporal information about Coedit users editing behaviour - that is, when an
-    edit occurs.
+    Represents temporal information about Coedit users editing behaviour - that is, when
+    edits occur.
     """
     __tablename__ = '__temporal__'
     id = database.Column(database.Integer, primary_key=True, index=True)
     user_text = database.Column(database.String)
     d = database.Column(database.Integer)
     h = database.Column(database.Integer)
+    num_edits = database.Column(database.Integer)
