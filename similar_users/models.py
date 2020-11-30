@@ -12,7 +12,7 @@ database = SQLAlchemy()
 
 class UserMetadata(database.Model):
     """
-    Represent attributes for users in Coedit.
+    Represents attributes for users in Coedit.
     """
     __tablename__ = 'user'
     id = database.Column(database.Integer, primary_key=True, index=True)
@@ -26,7 +26,7 @@ class UserMetadata(database.Model):
 
 class Coedit(database.Model):
     """
-    Represent a (user, user) similarity matrix in terms of number
+    Represents a (user, user) similarity matrix in terms of number
     of edits in which two users overlapped.
     """
     __tablename__ = '__coedit__'
@@ -38,7 +38,7 @@ class Coedit(database.Model):
 
 class Temporal(database.Model):
     """
-    Represent temporal information about Coedit users editing behavioul - that is, when
+    Represents temporal information about Coedit users editing behaviour - that is, when an
     edit occurs.
     """
     __tablename__ = '__temporal__'
