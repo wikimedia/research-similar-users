@@ -11,45 +11,14 @@ import mwapi
 import yaml
 from flask import Flask, request, jsonify, render_template, abort
 from flask_basicauth import BasicAuth
-from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from sklearn.metrics.pairwise import cosine_similarity
+from models import database, UserMetadata, Coedit, Temporal
 
 app = Flask(__name__)
-
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
-database = SQLAlchemy(app)
 basic_auth = BasicAuth(app)
 # Enable CORS for API endpoints
 cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
-
-class UserMetadata(database.Model):
-    __tablename__ = 'user'
-    id = database.Column(database.Integer, primary_key=True, index=True)
-    user_text = database.Column(database.String)
-    is_anon = database.Column(database.Boolean)
-    num_edits = database.Column(database.Integer)
-    num_pages = database.Column(database.Integer)
-    most_recent_edit = database.Column(database.DateTime)
-    oldest_edit = database.Column(database.DateTime)
-
-
-class Coedit(database.Model):
-    __tablename__ = '__coedit__'
-    id = database.Column(database.Integer, primary_key=True, index=True)
-    user_text = database.Column(database.String)
-    neighbor = database.Column(database.String)
-    overlap_count = database.Column(database.Integer)
-
-
-class Temporal(database.Model):
-    __tablename__ = '__temporal__'
-    id = database.Column(database.Integer, primary_key=True, index=True)
-    user_text = database.Column(database.String)
-    d = database.Column(database.Integer)
-    h = database.Column(database.Integer)
-    num_edits = database.Column(database.Integer)
-
 
 # Testing
 # Local: http://127.0.0.1:5000/similarusers?usertext=Ziyingjiang
@@ -98,9 +67,9 @@ def get_similar_users():
         return jsonify({"Error": error})
 
     try:
-        load_data(user_text)
+        lookup_user(user_text)
     except Exception as e:
-        logging.error(f'Unable to load data for user {user_text}', e)
+        logging.error(f'Unable to load data for user {user_text}.', e)
         return jsonify({'Error': str(e)})
 
     edits = get_additional_edits(
@@ -114,14 +83,10 @@ def get_similar_users():
     last_edit = None
     logging.info(str(USER_METADATA[user_text]))
     if USER_METADATA[user_text]["oldest_edit"]:
-        oldest_edit = datetime.strptime(
-            USER_METADATA[user_text]["oldest_edit"], TIME_FORMAT
-        ).strftime(READABLE_TIME_FORMAT)
+        oldest_edit = USER_METADATA[user_text]["oldest_edit"].strftime(READABLE_TIME_FORMAT)
 
     if USER_METADATA[user_text]["most_recent_edit"]:
-        last_edit = datetime.strptime(
-            USER_METADATA[user_text]["most_recent_edit"], TIME_FORMAT
-        ).strftime(READABLE_TIME_FORMAT)
+        last_edit = USER_METADATA[user_text]["most_recent_edit"].strftime(READABLE_TIME_FORMAT)
 
     result = {
         "user_text": user_text,
@@ -204,7 +169,7 @@ def get_additional_edits(
 ):
     """Gather edits made by a user since last data dumps -- e.g., October edits if dumps end of September dumps used."""
     if last_edit_timestamp:
-        arvstart = datetime.strptime(last_edit_timestamp, TIME_FORMAT) + timedelta(
+        arvstart = last_edit_timestamp + timedelta(
             seconds=1
         )
     else:
@@ -248,11 +213,11 @@ def get_additional_edits(
                     update_temporal_data(user_text, dtts.day, dtts.hour, 1)
                     new_edits += 1
                     if min_timestamp is None:
-                        min_timestamp = ts
-                        max_timestamp = ts
+                        min_timestamp = dtts
+                        max_timestamp = dtts
                     else:
-                        max_timestamp = max(max_timestamp, ts)
-                        min_timestamp = min(min_timestamp, ts)
+                        max_timestamp = max(max_timestamp, dtts)
+                        min_timestamp = min(min_timestamp, dtts)
             if len(pageids) > limit:
                 break
         # Update USER_METADATA so future calls don't need to repeat this process
@@ -507,7 +472,7 @@ def load_coedit_data(resource_dir):
 
                 coedit = Coedit(user_text=user_text, neighbor=neighbor, overlap_count=overlap_count)
             except Exception as e:
-                logging.error(f'Failed to parse record {line_str}', e)
+                logging.error(f'Failed to parse record {line} - {line_str}', e)
             else:
                 database.session.add(coedit)
         database.session.commit()
@@ -528,11 +493,9 @@ def load_temporal_data(resource_dir):
                 num_edits = int(line[3])
 
                 temporal = Temporal(user_text=user_text, d=day_of_week, h=hour_of_day, num_edits=num_edits)
-                # TODO(gmodena, 2020-11-27): I don't think we need to call out update_temporal_data at
-                # load time. What this call to handle users with no avail data at ETL time?
-                # update_temporal_data(user_text, day_of_week, hour_of_day, num_edits)
+
             except Exception as e:
-                logging.error(f'Failed to parse record {line_str}', e)
+                logging.error(f'Failed to parse record {line_str}.', e)
             else:
                 database.session.add(temporal)
         database.session.commit()
@@ -575,19 +538,39 @@ def load_metadata(resource_dir):
                     user_text=user_text,
                     is_anon=bool(line[1]),
                     num_edits=int(line[2]),
-                    num_page=int(line[3]),
-                    most_recent_edit=line[4],
-                    oldest_ediT=line[5])
+                    num_pages=int(line[3]),
+                    most_recent_edit=datetime.strptime(line[4], TIME_FORMAT),
+                    oldest_edit=datetime.strptime(line[5], TIME_FORMAT))
             except Exception as e:
                 logging.error(f'Failed to parse record {line_str}: ', str(e))
             else:
                 database.session.add(user)
-        database.commit()
+        database.session.commit()
 
-def load_data(user_text):
-    USER_METADATA[user_text] = UserMetadata.query.filter_by(user_text=user_text).first().__dict__
-    COEDIT_DATA[user_text] = [(row.neighbor, row.overlap_count) for row in Coedit.query.filter_by(user_text=user_text).all()]
-    TEMPORAL_DATA[user_text] = Temporal.query.filter_by(user_text=user_text).first().__dict__
+
+def lookup_user(user_text):
+    """
+    Lookup user data from the database, and populate session globals.
+
+    :param user_text: the username we want to analyze.
+    :return:
+    """
+    metadata = UserMetadata.query.filter_by(user_text=user_text).first()
+
+    USER_METADATA[user_text] = metadata.__dict__ if metadata else {}
+    COEDIT_DATA[user_text] = [(row.neighbor, row.overlap_count)
+                              for row in Coedit.query.filter_by(user_text=user_text).all()]
+    TEMPORAL_DATA[user_text] = {'d': [0] * 7, 'h': [0] * 24}
+
+    temporal = Temporal.query.filter_by(user_text=user_text).first()
+    if temporal:
+        update_temporal_data(user_text, temporal.d, temporal.h, temporal.num_edits)
+
+
+def load_data(resourcedir):
+    load_metadata(resourcedir)
+    load_coedit_data(resourcedir)
+    load_temporal_data(resourcedir)
 
 
 def parse_args():
@@ -630,8 +613,18 @@ def main():
     # global
     app.config.update(yaml.safe_load(open(args.config)))
 
+    database.init_app(app)
     if 'resourcedir' in args:
-        load_data(args.resourcedir)
+        with app.test_request_context():
+            # TODO(gmodena, 2020-11-27): create (if not exists) a database and populate it at startup.
+            # Used for development; this logic will be moved to a migration/manager module.
+            # To do it properly, we should refactor app creation to a factory,
+            # rather than using a global object.
+            try:
+                database.create_all()
+                load_data(args.resourcedir)
+            except Exception as e:
+                logging.error('Failed to load input data.', str(e))
     # Only use LISTEN_IP to configure docker port exposure - not for serving elsewhere.
     app.run(app.config["LISTEN_IP"] if "LISTEN_IP" in app.config else "127.0.0.1")
 
